@@ -12,3 +12,4 @@ services:
     environment:
       - SLEEP_INTERVAL=21600 # 每 6 小时同步一次（秒）
       - COOKIES_FILE=/app/cookies.txt
+      - RUN_ONCE=false
