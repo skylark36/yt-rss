@@ -188,9 +188,10 @@ def run_sync():
             
         video_id = entry['id']
         if video_id not in state["videos"]:
-            logger.info(f"Processing new video: {video_id}")
+            logger.info(f"Downloading video: {video_id}")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
+                logger.info(f"Uploading video: {video_id}")
                 upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
                 video_data["local_path"].unlink()
                 
