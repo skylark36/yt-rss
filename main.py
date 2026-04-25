@@ -220,6 +220,7 @@ def run_sync():
         logger.info("No new videos found and RSS already exists.")
 
 def main():
+    logger.info(f"Starting yt-rss. RUN_ONCE={RUN_ONCE}")
     if RUN_ONCE:
         run_sync()
     else:
