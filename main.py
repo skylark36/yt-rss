@@ -169,7 +169,6 @@ def run_sync():
         return
 
     prefix = PREFIX or playlist_id
-    print('prefix', prefix)
     state = get_state(prefix)
 
     # Get playlist entries and metadata
@@ -184,6 +183,7 @@ def run_sync():
                 logger.error("Could not extract playlist ID.")
                 return
             entries = playlist_info.get('entries', [])
+            logger.info(f"Playlist ID: {playlist_id}, Got {len(entries)} entries.")
     except Exception as e:
         logger.error(f"Error fetching playlist: {e}")
         return
