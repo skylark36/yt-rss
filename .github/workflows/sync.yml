@@ -36,4 +36,7 @@ jobs:
           BASE_URL: ${{ vars.BASE_URL }}
           RSS_FILENAME: ${{ vars.RSS_FILENAME || 'rss.xml' }}
           STATE_FILENAME: ${{ vars.STATE_FILENAME || 'state.json' }}
+          MAX_NEW_VIDEOS: ${{ vars.MAX_NEW_VIDEOS || '5' }}
+          ITUNES_IMAGE: ${{ vars.ITUNES_IMAGE }}
+          ITUNES_AUTHOR: ${{ vars.ITUNES_AUTHOR }}
         run: uv run main.py

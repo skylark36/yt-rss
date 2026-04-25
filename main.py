@@ -23,9 +23,12 @@ R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
 R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
 PLAYLIST_URL = os.getenv("PLAYLIST_URL")
-BASE_URL = os.getenv("BASE_URL")  # e.g., https://pub-xxx.r2.dev or custom domain
+BASE_URL = os.getenv("BASE_URL", "").rstrip("/")  # Normalize BASE_URL
 RSS_FILENAME = os.getenv("RSS_FILENAME", "rss.xml")
 STATE_FILENAME = os.getenv("STATE_FILENAME", "state.json")
+MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
+ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
+ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -36,26 +39,28 @@ s3_client = boto3.client(
     config=Config(signature_version="s3v4"),
 )
 
-def get_state() -> Dict:
+def get_state(prefix: str) -> Dict:
+    key = f"{prefix}/{STATE_FILENAME}"
     try:
-        response = s3_client.get_object(Bucket=R2_BUCKET_NAME, Key=STATE_FILENAME)
+        response = s3_client.get_object(Bucket=R2_BUCKET_NAME, Key=key)
         return json.loads(response["Body"].read().decode("utf-8"))
     except s3_client.exceptions.NoSuchKey:
-        logger.info("State file not found on R2, starting fresh.")
+        logger.info(f"State file {key} not found on R2, starting fresh.")
         return {"videos": {}}
     except Exception as e:
         logger.error(f"Error fetching state: {e}")
         return {"videos": {}}
 
-def save_state(state: Dict):
+def save_state(state: Dict, prefix: str):
+    key = f"{prefix}/{STATE_FILENAME}"
     try:
         s3_client.put_object(
             Bucket=R2_BUCKET_NAME,
-            Key=STATE_FILENAME,
+            Key=key,
             Body=json.dumps(state, indent=2, ensure_ascii=False),
             ContentType="application/json",
         )
-        logger.info("State saved to R2.")
+        logger.info(f"State saved to {key} on R2.")
     except Exception as e:
         logger.error(f"Error saving state: {e}")
 
@@ -72,7 +77,7 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         logger.error(f"Error uploading file {local_path}: {e}")
         raise
 
-def download_audio(video_url: str) -> Optional[Dict]:
+def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
     
@@ -92,7 +97,6 @@ def download_audio(video_url: str) -> Optional[Dict]:
             info = ydl.extract_info(video_url, download=True)
             audio_path = tmp_dir / f"{info['id']}.m4a"
             if not audio_path.exists():
-                # Some formats might already be m4a or different
                 audio_path = next(tmp_dir.glob(f"{info['id']}.*"))
             
             return {
@@ -102,21 +106,25 @@ def download_audio(video_url: str) -> Optional[Dict]:
                 "upload_date": info.get("upload_date"),
                 "filename": audio_path.name,
                 "local_path": audio_path,
-                "url": f"{BASE_URL}/{audio_path.name}"
+                "url": f"{BASE_URL}/{prefix}/{audio_path.name}"
             }
     except Exception as e:
         logger.error(f"Error downloading {video_url}: {e}")
         return None
 
-def generate_rss(state: Dict):
+def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
     fg = FeedGenerator()
+    fg.load_extension('podcast')
     fg.id(PLAYLIST_URL)
-    fg.title("YouTube Playlist RSS")
+    fg.title(playlist_info.get('title', "YouTube Playlist RSS"))
     fg.author({'name': 'yt-rss'})
     fg.link(href=PLAYLIST_URL, rel='alternate')
-    fg.description("Generated RSS from YouTube Playlist")
+    fg.description(playlist_info.get('description', "Generated RSS from YouTube Playlist"))
+    if ITUNES_IMAGE:
+        fg.podcast.itunes_image(ITUNES_IMAGE)
+    if ITUNES_AUTHOR:
+        fg.podcast.itunes_author(ITUNES_AUTHOR)
     
-    # Sort videos by date descending
     videos = sorted(
         state["videos"].values(),
         key=lambda x: x.get("upload_date", ""),
@@ -129,9 +137,7 @@ def generate_rss(state: Dict):
         fe.title(video["title"])
         fe.description(video["description"])
         fe.link(href=video["url"])
-        
-        # Enclosure for podcast apps
-        fe.enclosure(video["url"], 0, 'audio/mp4') # m4a is audio/mp4
+        fe.enclosure(video["url"], 0, 'audio/mp4')
         
         if video.get("upload_date"):
             try:
@@ -141,8 +147,8 @@ def generate_rss(state: Dict):
                 pass
 
     local_rss = Path(RSS_FILENAME)
-    fg.rss_file(str(local_rss))
-    upload_file(local_rss, RSS_FILENAME, "application/rss+xml")
+    fg.rss_file(str(local_rss), encoding='UTF-8', pretty=True)
+    upload_file(local_rss, f"{prefix}/{RSS_FILENAME}", "application/rss+xml; charset=utf-8")
     local_rss.unlink()
 
 def main():
@@ -150,28 +156,37 @@ def main():
         logger.error("Missing required environment variables.")
         return
 
-    state = get_state()
-    
-    # Get playlist entries
+    # Get playlist entries and metadata
     ydl_opts = {'extract_flat': True, 'quiet': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             playlist_info = ydl.extract_info(PLAYLIST_URL, download=False)
+            playlist_id = playlist_info.get('id')
+            if not playlist_id:
+                logger.error("Could not extract playlist ID.")
+                return
             entries = playlist_info.get('entries', [])
     except Exception as e:
         logger.error(f"Error fetching playlist: {e}")
         return
+
+    prefix = playlist_id
+    state = get_state(prefix)
+    
     new_videos_count = 0
     for entry in entries:
+        if new_videos_count >= MAX_NEW_VIDEOS:
+            logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
+            break
+            
         video_id = entry['id']
         if video_id not in state["videos"]:
             logger.info(f"Processing new video: {video_id}")
-            video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}")
+            video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
-                upload_file(video_data["local_path"], video_data["filename"], "audio/mp4")
+                upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
                 video_data["local_path"].unlink()
                 
-                # Update state
                 state["videos"][video_id] = {
                     "id": video_data["id"],
                     "title": video_data["title"],
@@ -180,15 +195,22 @@ def main():
                     "url": video_data["url"]
                 }
                 new_videos_count += 1
-                
-                # Save state incrementally to avoid losing progress
-                save_state(state)
+                save_state(state, prefix)
 
-    if new_videos_count > 0 or not Path(RSS_FILENAME).exists():
-        logger.info(f"Updating RSS feed with {new_videos_count} new entries.")
-        generate_rss(state)
+    # Check if RSS exists on R2 by checking if we should update
+    rss_key = f"{prefix}/{RSS_FILENAME}"
+    rss_exists = False
+    try:
+        s3_client.head_object(Bucket=R2_BUCKET_NAME, Key=rss_key)
+        rss_exists = True
+    except:
+        pass
+
+    if new_videos_count > 0 or not rss_exists:
+        logger.info(f"Updating RSS feed in {prefix}/ with {new_videos_count} new entries.")
+        generate_rss(state, prefix, playlist_info)
     else:
-        logger.info("No new videos found.")
+        logger.info("No new videos found and RSS already exists.")
 
 if __name__ == "__main__":
     main()
