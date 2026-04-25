@@ -14,8 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY main.py ./
 
-ENV SLEEP_INTERVAL=21600
-# 默认开启服务模式，但在 GH Actions 中会被 compose 或 env 覆盖为 true
-ENV RUN_ONCE=false 
-
 CMD ["python", "main.py"]

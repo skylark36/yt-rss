@@ -10,6 +10,8 @@ import yt_dlp
 from botocore.config import Config
 from dotenv import load_dotenv
 from feedgen.feed import FeedGenerator
+import time
+import random
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,8 +32,7 @@ MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
-SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "21600")) # 6 hours default
-RUN_ONCE = os.getenv("RUN_ONCE", "true").lower() == "true"
+SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -188,6 +189,11 @@ def run_sync():
             
         video_id = entry['id']
         if video_id not in state["videos"]:
+            if new_videos_count > 0:
+                delay = random.randint(10, 60)
+                logger.info(f"Waiting for {delay} seconds before next download...")
+                time.sleep(delay)
+                
             logger.info(f"Downloading video: {video_id}")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
@@ -221,20 +227,15 @@ def run_sync():
         logger.info("No new videos found and RSS already exists.")
 
 def main():
-    logger.info(f"Starting yt-rss. RUN_ONCE={RUN_ONCE}")
-    if RUN_ONCE:
-        run_sync()
-    else:
-        import time
-        logger.info(f"Starting service mode. Syncing every {SLEEP_INTERVAL} seconds.")
-        while True:
-            try:
-                run_sync()
-            except Exception as e:
-                logger.error(f"Unexpected error in sync loop: {e}")
-            
-            logger.info(f"Sleeping for {SLEEP_INTERVAL} seconds...")
-            time.sleep(SLEEP_INTERVAL)
+    logger.info(f"Starting service mode. Syncing every {SLEEP_INTERVAL} minutes.")
+    while True:
+        try:
+            run_sync()
+        except Exception as e:
+            logger.error(f"Unexpected error in sync loop: {e}")
+        
+        logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
+        time.sleep(SLEEP_INTERVAL * 60)
 
 if __name__ == "__main__":
     main()
