@@ -33,6 +33,7 @@ ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
+PREFIX = os.getenv("PREFIX")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -167,6 +168,10 @@ def run_sync():
         logger.error("Missing required environment variables.")
         return
 
+    prefix = PREFIX or playlist_id
+    print('prefix', prefix)
+    state = get_state(prefix)
+
     # Get playlist entries and metadata
     ydl_opts = {'extract_flat': True, 'quiet': True}
     if COOKIES_FILE:
@@ -183,9 +188,6 @@ def run_sync():
         logger.error(f"Error fetching playlist: {e}")
         return
 
-    prefix = playlist_id
-    state = get_state(prefix)
-    
     new_videos_count = 0
     for entry in entries:
         if new_videos_count >= MAX_NEW_VIDEOS:

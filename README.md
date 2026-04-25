@@ -85,6 +85,7 @@ python main.py
 | `R2_BUCKET_NAME` | 存储桶名称 | **必填** |
 | `PLAYLIST_URL` | YouTube 播放列表 URL | **必填** |
 | `BASE_URL` | 存储桶对应的公共访问基础 URL | **必填** |
+| `PREFIX` | 自定义存储路径前缀（若不填则使用播放列表 ID） | 空 |
 | `MAX_NEW_VIDEOS` | 每次运行最多处理的新视频数 | `5` |
 | `RSS_FILENAME` | 生成的 RSS 文件名 | `rss.xml` |
 | `STATE_FILENAME` | 状态记录文件名 | `state.json` |
