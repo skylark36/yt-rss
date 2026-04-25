@@ -105,10 +105,15 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
             if not audio_path.exists():
                 audio_path = next(tmp_dir.glob(f"{info['id']}.*"))
             
+            title = info.get("title", "")
+            description = info.get("description", "")
+            if not description or len(description) > 128: # 限制长度，防止 RSS 文件体积过大
+                description = title
+
             return {
                 "id": info["id"],
-                "title": info["title"],
-                "description": info.get("description", ""),
+                "title": title,
+                "description": description,
                 "upload_date": info.get("upload_date"),
                 "filename": audio_path.name,
                 "local_path": audio_path,
