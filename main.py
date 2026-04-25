@@ -29,6 +29,9 @@ STATE_FILENAME = os.getenv("STATE_FILENAME", "state.json")
 MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
+COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
+SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "21600")) # 6 hours default
+RUN_ONCE = os.getenv("RUN_ONCE", "true").lower() == "true"
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -91,6 +94,8 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
         'quiet': True,
         'no_warnings': True,
     }
+    if COOKIES_FILE:
+        ydl_opts['cookiefile'] = COOKIES_FILE
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -151,13 +156,15 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
     upload_file(local_rss, f"{prefix}/{RSS_FILENAME}", "application/rss+xml; charset=utf-8")
     local_rss.unlink()
 
-def main():
+def run_sync():
     if not all([R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT_URL, R2_BUCKET_NAME, PLAYLIST_URL, BASE_URL]):
         logger.error("Missing required environment variables.")
         return
 
     # Get playlist entries and metadata
     ydl_opts = {'extract_flat': True, 'quiet': True}
+    if COOKIES_FILE:
+        ydl_opts['cookiefile'] = COOKIES_FILE
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             playlist_info = ydl.extract_info(PLAYLIST_URL, download=False)
@@ -211,6 +218,21 @@ def main():
         generate_rss(state, prefix, playlist_info)
     else:
         logger.info("No new videos found and RSS already exists.")
+
+def main():
+    if RUN_ONCE:
+        run_sync()
+    else:
+        import time
+        logger.info(f"Starting service mode. Syncing every {SLEEP_INTERVAL} seconds.")
+        while True:
+            try:
+                run_sync()
+            except Exception as e:
+                logger.error(f"Unexpected error in sync loop: {e}")
+            
+            logger.info(f"Sleeping for {SLEEP_INTERVAL} seconds...")
+            time.sleep(SLEEP_INTERVAL)
 
 if __name__ == "__main__":
     main()
