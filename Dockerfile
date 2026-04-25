@@ -1,13 +1,3 @@
-# Stage 1: Export requirements
-FROM python:3.12-slim AS exporter
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-WORKDIR /app
-COPY pyproject.toml uv.lock ./
-# 导出 requirements.txt
-RUN uv export --format requirements-txt > requirements.txt
-
-# Stage 2: Final runtime stage
 FROM python:3.12-slim
 
 # Install runtime dependencies
@@ -18,7 +8,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements from exporter and install to system python
-COPY --from=exporter /app/requirements.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
