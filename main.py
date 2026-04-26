@@ -49,6 +49,9 @@ s3_client = boto3.client(
 
 def extract_date_from_title(title: str) -> Optional[str]:
     """Extracts date from title like '2026年3月3日' and returns 'YYYYMMDD'."""
+    if not title or not isinstance(title, str):
+        return None
+    title = title.replace(" ", "")
     match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', title)
     if match:
         year, month, day = match.groups()
