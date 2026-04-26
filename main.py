@@ -36,6 +36,7 @@ COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
 AFTER_DATE = os.getenv("AFTER_DATE", "20260101")
+SKIPPED_VIDEOS = os.getenv("SKIPPED_VIDEOS", "").split(",")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -214,7 +215,7 @@ def run_sync():
                 save_state(state, prefix)
             continue
 
-        if video_id not in state["videos"]:
+        if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
             if new_videos_count >= MAX_NEW_VIDEOS:
                 logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
                 break
