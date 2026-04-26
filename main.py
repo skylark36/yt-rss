@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -34,6 +35,7 @@ ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
+AFTER_DATE = os.getenv("AFTER_DATE", "20260101")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -43,6 +45,14 @@ s3_client = boto3.client(
     aws_secret_access_key=R2_SECRET_ACCESS_KEY,
     config=Config(signature_version="s3v4"),
 )
+
+def extract_date_from_title(title: str) -> Optional[str]:
+    """Extracts date from title like '2026年3月3日' and returns 'YYYYMMDD'."""
+    match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', title)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}{int(month):02d}{int(day):02d}"
+    return None
 
 def get_state(prefix: str) -> Dict:
     key = f"{prefix}/{STATE_FILENAME}"
@@ -137,8 +147,9 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
     if ITUNES_AUTHOR:
         fg.podcast.itunes_author(ITUNES_AUTHOR)
     
+    videos = [v for v in state["videos"].values() if not v.get("skipped")]
     videos = sorted(
-        state["videos"].values(),
+        videos,
         key=lambda x: x.get("upload_date", ""),
         reverse=True
     )
@@ -168,9 +179,6 @@ def run_sync():
         logger.error("Missing required environment variables.")
         return
 
-    prefix = PREFIX or playlist_id
-    state = get_state(prefix)
-
     # Get playlist entries and metadata
     ydl_opts = {'extract_flat': True, 'quiet': True}
     if COOKIES_FILE:
@@ -182,6 +190,10 @@ def run_sync():
             if not playlist_id:
                 logger.error("Could not extract playlist ID.")
                 return
+            
+            prefix = PREFIX or playlist_id
+            state = get_state(prefix)
+            
             entries = playlist_info.get('entries', [])
             logger.info(f"Playlist ID: {playlist_id}, Got {len(entries)} entries.")
     except Exception as e:
@@ -190,18 +202,29 @@ def run_sync():
 
     new_videos_count = 0
     for entry in entries:
-        if new_videos_count >= MAX_NEW_VIDEOS:
-            logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
-            break
-            
         video_id = entry['id']
+        video_title = entry.get('title', '')
+        
+        # Check date from title first
+        title_date = extract_date_from_title(video_title)
+        if title_date and AFTER_DATE and title_date < AFTER_DATE:
+            if video_id not in state["videos"]:
+                logger.info(f"Skipping video {video_id} by title date: {title_date}")
+                state["videos"][video_id] = {"id": video_id, "skipped": True}
+                save_state(state, prefix)
+            continue
+
         if video_id not in state["videos"]:
+            if new_videos_count >= MAX_NEW_VIDEOS:
+                logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
+                break
+                
             if new_videos_count > 0:
                 delay = random.randint(10, 60)
                 logger.info(f"Waiting for {delay} seconds before next download...")
                 time.sleep(delay)
                 
-            logger.info(f"Downloading video: {video_id}")
+            logger.info(f"Downloading video: {video_id} ({video_title})")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
                 logger.info(f"Uploading video: {video_id}")
