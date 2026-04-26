@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from feedgen.feed import FeedGenerator
 import time
 import random
+from notify import send_bark
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -68,6 +69,7 @@ def get_state(prefix: str) -> Dict:
         return {"videos": {}}
     except Exception as e:
         logger.error(f"Error fetching state: {e}")
+        send_bark("YT-RSS Error", f"Error fetching state: {e}")
         return {"videos": {}}
 
 def save_state(state: Dict, prefix: str):
@@ -82,6 +84,7 @@ def save_state(state: Dict, prefix: str):
         logger.info(f"State saved to {key} on R2.")
     except Exception as e:
         logger.error(f"Error saving state: {e}")
+        send_bark("YT-RSS Error", f"Error saving state: {e}")
 
 def upload_file(local_path: Path, remote_key: str, content_type: str):
     try:
@@ -94,6 +97,7 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         logger.info(f"Uploaded {local_path} to {remote_key}")
     except Exception as e:
         logger.error(f"Error uploading file {local_path}: {e}")
+        send_bark("YT-RSS Error", f"Error uploading file {local_path.name}: {e}")
         raise
 
 def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
@@ -136,6 +140,7 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
             }
     except Exception as e:
         logger.error(f"Error downloading {video_url}: {e}")
+        send_bark("YT-RSS Error", f"Error downloading {video_url}: {e}")
         return None
 
 def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
@@ -180,7 +185,9 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
 
 def run_sync():
     if not all([R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT_URL, R2_BUCKET_NAME, PLAYLIST_URL, BASE_URL]):
-        logger.error("Missing required environment variables.")
+        error_msg = "Missing required environment variables."
+        logger.error(error_msg)
+        send_bark("YT-RSS Config Error", error_msg)
         return
 
     # Get playlist entries and metadata
@@ -192,7 +199,9 @@ def run_sync():
             playlist_info = ydl.extract_info(PLAYLIST_URL, download=False)
             playlist_id = playlist_info.get('id')
             if not playlist_id:
-                logger.error("Could not extract playlist ID.")
+                error_msg = "Could not extract playlist ID."
+                logger.error(error_msg)
+                send_bark("YT-RSS Error", error_msg)
                 return
             
             prefix = PREFIX or playlist_id
@@ -202,6 +211,7 @@ def run_sync():
             logger.info(f"Playlist ID: {playlist_id}, Got {len(entries)} entries.")
     except Exception as e:
         logger.error(f"Error fetching playlist: {e}")
+        send_bark("YT-RSS Error", f"Error fetching playlist: {e}")
         return
 
     new_videos_count = 0
@@ -267,6 +277,7 @@ def main():
             run_sync()
         except Exception as e:
             logger.error(f"Unexpected error in sync loop: {e}")
+            send_bark("YT-RSS Critical Error", f"Unexpected error in sync loop: {e}")
         
         logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
         time.sleep(SLEEP_INTERVAL * 60)
