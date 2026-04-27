@@ -233,9 +233,9 @@ def run_sync():
                 skip_reason = f"title date: {title_date}"
         else:
             # Fallback: Check metadata if title date is missing and video is new
-            randomSleep()
             if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
                 logger.info(f"Title date not found for {video_id}, checking metadata...")
+                randomSleep()
                 try:
                     with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
                         info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
