@@ -219,15 +219,40 @@ def run_sync():
         video_id = entry['id']
         video_title = entry.get('title', '')
         
-        # Check date from title first
+        # 1. Attempt to extract date from title
         title_date = extract_date_from_title(video_title)
-        if title_date and AFTER_DATE and title_date < AFTER_DATE:
+        
+        # 2. Determine if we should skip this video based on date
+        should_skip = False
+        skip_reason = ""
+        
+        if title_date:
+            if AFTER_DATE and title_date < AFTER_DATE:
+                should_skip = True
+                skip_reason = f"title date: {title_date}"
+        else:
+            # Fallback: Check metadata if title date is missing and video is new
+            if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
+                logger.info(f"Title date not found for {video_id}, checking metadata...")
+                try:
+                    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                        upload_date = info.get("upload_date")
+                        if upload_date and AFTER_DATE and upload_date < AFTER_DATE:
+                            should_skip = True
+                            skip_reason = f"upload date: {upload_date}"
+                except Exception as e:
+                    logger.error(f"Error checking metadata for {video_id}: {e}")
+
+        # 3. Handle skipping
+        if should_skip:
             if video_id not in state["videos"]:
-                logger.info(f"Skipping video {video_id} by title date: {title_date}")
+                logger.info(f"Skipping video {video_id} by {skip_reason}")
                 state["videos"][video_id] = {"id": video_id, "skipped": True}
                 save_state(state, prefix)
             continue
 
+        # 4. Proceed with download if it's a new video
         if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
             if new_videos_count >= MAX_NEW_VIDEOS:
                 logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
