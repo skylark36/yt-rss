@@ -36,7 +36,7 @@ ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
-AFTER_DATE = os.getenv("AFTER_DATE", "20260101")
+AFTER_DATE = os.getenv("AFTER_DATE")
 SKIPPED_VIDEOS = os.getenv("SKIPPED_VIDEOS", "").split(",")
 
 # S3 Client for R2
@@ -223,28 +223,29 @@ def run_sync():
         # 1. Attempt to extract date from title
         title_date = extract_date_from_title(video_title)
         
-        # 2. Determine if we should skip this video based on date
+        # 2. Determine if we should skip this video based on date (only if AFTER_DATE is set)
         should_skip = False
         skip_reason = ""
         
-        if title_date:
-            if AFTER_DATE and title_date < AFTER_DATE:
-                should_skip = True
-                skip_reason = f"title date: {title_date}"
-        else:
-            # Fallback: Check metadata if title date is missing and video is new
-            if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
-                logger.info(f"Title date not found for {video_id}, checking metadata...")
-                randomSleep()
-                try:
-                    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
-                        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-                        upload_date = info.get("upload_date")
-                        if upload_date and AFTER_DATE and upload_date < AFTER_DATE:
-                            should_skip = True
-                            skip_reason = f"upload date: {upload_date}"
-                except Exception as e:
-                    logger.error(f"Error checking metadata for {video_id}: {e}")
+        if AFTER_DATE:
+            if title_date:
+                if title_date < AFTER_DATE:
+                    should_skip = True
+                    skip_reason = f"title date: {title_date}"
+            else:
+                # Fallback: Check metadata if title date is missing and video is new
+                if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
+                    logger.info(f"Title date not found for {video_id}, checking metadata...")
+                    randomSleep()
+                    try:
+                        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                            upload_date = info.get("upload_date")
+                            if upload_date and upload_date < AFTER_DATE:
+                                should_skip = True
+                                skip_reason = f"upload date: {upload_date}"
+                    except Exception as e:
+                        logger.error(f"Error checking metadata for {video_id}: {e}")
 
         # 3. Handle skipping
         if should_skip:
@@ -294,7 +295,7 @@ def run_sync():
 
 def randomSleep():
     delay = random.randint(10, 60)
-    logger.info(f"Waiting for {delay} seconds before next download...")
+    logger.info(f"Waiting for {delay} seconds before download...")
     time.sleep(delay)
 
 def main():
