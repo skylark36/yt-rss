@@ -101,6 +101,7 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         raise
 
 def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
+    randomSleep()
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
     
@@ -232,6 +233,7 @@ def run_sync():
                 skip_reason = f"title date: {title_date}"
         else:
             # Fallback: Check metadata if title date is missing and video is new
+            randomSleep()
             if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
                 logger.info(f"Title date not found for {video_id}, checking metadata...")
                 try:
@@ -257,11 +259,6 @@ def run_sync():
             if new_videos_count >= MAX_NEW_VIDEOS:
                 logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
                 break
-                
-            if new_videos_count > 0:
-                delay = random.randint(10, 60)
-                logger.info(f"Waiting for {delay} seconds before next download...")
-                time.sleep(delay)
                 
             logger.info(f"Downloading video: {video_id} ({video_title})")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
@@ -294,6 +291,11 @@ def run_sync():
         generate_rss(state, prefix, playlist_info)
     else:
         logger.info("No new videos found and RSS already exists.")
+
+def randomSleep():
+    delay = random.randint(10, 60)
+    logger.info(f"Waiting for {delay} seconds before next download...")
+    time.sleep(delay)
 
 def main():
     logger.info(f"Starting service mode. Syncing every {SLEEP_INTERVAL} minutes.")
