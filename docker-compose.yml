@@ -7,8 +7,5 @@ services:
       - .env
     volumes:
       - ./.env:/app/.env
-      # 如果您需要使用 cookie，请取消下面这行的注释，并确保当前目录下有 cookies.txt
-      # - ./cookies.txt:/app/cookies.txt
     environment:
       - SLEEP_INTERVAL=360 # 每 6 小时同步一次（分钟）
-      - COOKIES_FILE=/app/cookies.txt

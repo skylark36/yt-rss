@@ -33,11 +33,9 @@ STATE_FILENAME = os.getenv("STATE_FILENAME", "state.json")
 MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
-COOKIES_FILE = os.getenv("COOKIES_FILE") # Optional path to cookies.txt
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
 AFTER_DATE = os.getenv("AFTER_DATE")
-SKIPPED_VIDEOS = os.getenv("SKIPPED_VIDEOS", "").split(",")
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -115,8 +113,6 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
         'quiet': True,
         'no_warnings': True,
     }
-    if COOKIES_FILE:
-        ydl_opts['cookiefile'] = COOKIES_FILE
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -200,8 +196,6 @@ def run_sync():
 
     # Get playlist entries and metadata
     ydl_opts = {'extract_flat': True, 'quiet': True}
-    if COOKIES_FILE:
-        ydl_opts['cookiefile'] = COOKIES_FILE
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             playlist_info = ydl.extract_info(PLAYLIST_URL, download=False)
@@ -241,13 +235,11 @@ def run_sync():
                     skip_reason = f"title date: {title_date}"
             else:
                 # Fallback: Check metadata if title date is missing and video is new
-                if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
+                if video_id not in state["videos"]:
                     logger.info(f"Title date not found for {video_id}, checking metadata...")
                     randomSleep()
                     try:
                         check_opts = {'quiet': True, 'no_warnings': True}
-                        if COOKIES_FILE:
-                            check_opts['cookiefile'] = COOKIES_FILE
                         with yt_dlp.YoutubeDL(check_opts) as ydl:
                             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
                             upload_date = info.get("upload_date")
@@ -270,7 +262,7 @@ def run_sync():
             continue
 
         # 4. Proceed with download if it's a new video
-        if video_id not in state["videos"] and video_id not in SKIPPED_VIDEOS:
+        if video_id not in state["videos"]:
             if new_videos_count >= MAX_NEW_VIDEOS:
                 logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
                 break
