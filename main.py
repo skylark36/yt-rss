@@ -140,8 +140,15 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
                 "url": f"{BASE_URL}/{prefix}/{audio_path.name}"
             }
     except Exception as e:
-        logger.error(f"Error downloading {video_url}: {e}")
-        send_bark("YT-RSS Error", f"Error downloading {video_url}: {e}")
+        error_msg = str(e)
+        logger.error(f"Error downloading {video_url}: {error_msg}")
+        
+        # If it's a private video or otherwise unavailable, mark as skipped to avoid retrying
+        if any(msg in error_msg for msg in ["Private video", "This video is unavailable", "This video has been removed"]):
+            logger.info(f"Marking video as skipped due to permanent error: {error_msg}")
+            return {"id": video_url.split("=")[-1], "skipped": True}
+            
+        send_bark("YT-RSS Error", f"Error downloading {video_url}: {error_msg}")
         return None
 
 def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
@@ -238,14 +245,21 @@ def run_sync():
                     logger.info(f"Title date not found for {video_id}, checking metadata...")
                     randomSleep()
                     try:
-                        with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                        check_opts = {'quiet': True, 'no_warnings': True}
+                        if COOKIES_FILE:
+                            check_opts['cookiefile'] = COOKIES_FILE
+                        with yt_dlp.YoutubeDL(check_opts) as ydl:
                             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
                             upload_date = info.get("upload_date")
                             if upload_date and upload_date < AFTER_DATE:
                                 should_skip = True
                                 skip_reason = f"upload date: {upload_date}"
                     except Exception as e:
-                        logger.error(f"Error checking metadata for {video_id}: {e}")
+                        error_msg = str(e)
+                        logger.error(f"Error checking metadata for {video_id}: {error_msg}")
+                        if any(msg in error_msg for msg in ["Private video", "This video is unavailable", "This video has been removed"]):
+                            should_skip = True
+                            skip_reason = f"permanent error ({error_msg})"
 
         # 3. Handle skipping
         if should_skip:
@@ -264,18 +278,21 @@ def run_sync():
             logger.info(f"Downloading video: {video_id} ({video_title})")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
-                logger.info(f"Uploading video: {video_id}")
-                upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
-                video_data["local_path"].unlink()
-                
-                state["videos"][video_id] = {
-                    "id": video_data["id"],
-                    "title": video_data["title"],
-                    "description": video_data["description"],
-                    "upload_date": video_data["upload_date"],
-                    "url": video_data["url"]
-                }
-                new_videos_count += 1
+                if video_data.get("skipped"):
+                    state["videos"][video_id] = {"id": video_id, "skipped": True}
+                else:
+                    logger.info(f"Uploading video: {video_id}")
+                    upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
+                    video_data["local_path"].unlink()
+                    
+                    state["videos"][video_id] = {
+                        "id": video_data["id"],
+                        "title": video_data["title"],
+                        "description": video_data["description"],
+                        "upload_date": video_data["upload_date"],
+                        "url": video_data["url"]
+                    }
+                    new_videos_count += 1
                 save_state(state, prefix)
 
     # Check if RSS exists on R2 by checking if we should update
