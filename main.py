@@ -142,7 +142,7 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
         # If it's a private video or otherwise unavailable, mark as skipped to avoid retrying
         if any(msg in error_msg for msg in ["Private video", "This video is unavailable", "This video has been removed"]):
             logger.info(f"Marking video as skipped due to permanent error: {error_msg}")
-            return {"id": video_url.split("=")[-1], "skipped": True}
+            return {"id": video_url.split("=")[-1], "skipped": True, "skip_reason": error_msg}
             
         send_bark("YT-RSS Error", f"Error downloading {video_url}: {error_msg}")
         return None
@@ -257,7 +257,7 @@ def run_sync():
         if should_skip:
             if video_id not in state["videos"]:
                 logger.info(f"Skipping video {video_id} by {skip_reason}")
-                state["videos"][video_id] = {"id": video_id, "skipped": True}
+                state["videos"][video_id] = {"id": video_id, "skipped": True, "skip_reason": skip_reason}
                 save_state(state, prefix)
             continue
 
@@ -271,7 +271,7 @@ def run_sync():
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
                 if video_data.get("skipped"):
-                    state["videos"][video_id] = {"id": video_id, "skipped": True}
+                    state["videos"][video_id] = {"id": video_id, "skipped": True, "skip_reason": video_data.get("skip_reason")}
                 else:
                     logger.info(f"Uploading video: {video_id}")
                     upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
