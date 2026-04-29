@@ -319,5 +319,13 @@ def main():
         logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
         time.sleep(SLEEP_INTERVAL * 60)
 
+def refresh_state():
+    s = get_state(PREFIX)
+    vids = s['videos']
+    for video_id in list(vids.keys()):
+        if vids[video_id].get('skipped', False):
+            del vids[video_id]
+    save_state(s, PREFIX)
+
 if __name__ == "__main__":
     main()
