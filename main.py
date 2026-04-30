@@ -349,5 +349,10 @@ def refresh_state():
             del vids[video_id]
     save_state(s, PREFIX)
 
+def refresh_rss():
+    state = get_state(PREFIX)
+    playlist_info = fetch_rss_info(PLAYLIST_URL)
+    generate_rss(state, PREFIX, playlist_info)
+
 if __name__ == "__main__":
     main()
