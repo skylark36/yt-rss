@@ -148,7 +148,7 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         raise
 
 def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
-    # randomSleep()
+    randomSleep()
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
     
