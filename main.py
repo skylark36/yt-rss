@@ -308,10 +308,21 @@ def run_sync():
                 new_videos_count += 1
                 save_state(state, prefix)
 
-    # Generate and upload RSS feed
-    logger.info(f"Updating RSS feed in {prefix}/ with {new_videos_count} new entries.")
-    state = get_state(prefix) # get latest state
-    generate_rss(state, prefix, playlist_info)
+    # Check if RSS exists on R2 by checking if we should update
+    rss_key = f"{prefix}/{RSS_FILENAME}"
+    rss_exists = False
+    try:
+        s3_client.head_object(Bucket=R2_BUCKET_NAME, Key=rss_key)
+        rss_exists = True
+    except:
+        pass
+
+    if new_videos_count > 0 or not rss_exists:
+        logger.info(f"Updating RSS feed in {prefix}/ with {new_videos_count} new entries.")
+        state = get_state(prefix) # get latest state
+        generate_rss(state, prefix, playlist_info)
+    else:
+        logger.info("No new videos found and RSS already exists.")
 
 def randomSleep():
     delay = random.randint(10, 60)
