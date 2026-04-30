@@ -1,7 +1,6 @@
 import os
 import json
 import logging
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -13,6 +12,8 @@ from dotenv import load_dotenv
 from feedgen.feed import FeedGenerator
 import time
 import random
+import urllib.request
+from lxml import etree
 from notify import send_bark
 
 # Setup logging
@@ -46,16 +47,64 @@ s3_client = boto3.client(
     config=Config(signature_version="s3v4"),
 )
 
-def extract_date_from_title(title: str) -> Optional[str]:
-    """Extracts date from title like '2026年3月3日' and returns 'YYYYMMDD'."""
-    if not title or not isinstance(title, str):
+def fetch_rss_info(url: str) -> Optional[Dict]:
+    """Fetches and parses YouTube RSS feed."""
+    logger.info(f"Fetching RSS feed from {url}")
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            xml_content = response.read()
+        
+        root = etree.fromstring(xml_content)
+        ns = {
+            'atom': 'http://www.w3.org/2005/Atom',
+            'yt': 'http://www.youtube.com/xml/schemas/2015'
+        }
+        
+        title_node = root.find('atom:title', ns)
+        title = title_node.text if title_node is not None else "YouTube RSS"
+        
+        channel_id_node = root.find('yt:channelId', ns)
+        channel_id = channel_id_node.text if channel_id_node is not None else url.split("channel_id=")[-1]
+        
+        entries = []
+        for entry_node in root.findall('atom:entry', ns):
+            video_id_node = entry_node.find('yt:videoId', ns)
+            v_title_node = entry_node.find('atom:title', ns)
+            pub_date_node = entry_node.find('atom:published', ns)
+            
+            if video_id_node is not None:
+                video_id = video_id_node.text
+                video_title = v_title_node.text if v_title_node is not None else ""
+                
+                upload_date = None
+                if pub_date_node is not None:
+                    try:
+                        # Normalize ISO date to YYYYMMDD
+                        date_str = pub_date_node.text
+                        if date_str.endswith('Z'):
+                            date_str = date_str[:-1] + '+00:00'
+                        dt = datetime.fromisoformat(date_str)
+                        upload_date = dt.strftime("%Y%m%d")
+                    except Exception as e:
+                        logger.warning(f"Error parsing date {pub_date_node.text}: {e}")
+                
+                entries.append({
+                    'id': video_id,
+                    'title': video_title,
+                    'upload_date': upload_date
+                })
+        
+        return {
+            'id': channel_id,
+            'title': title,
+            'description': f"RSS feed: {title}",
+            'entries': entries
+        }
+    except Exception as e:
+        logger.error(f"Error fetching RSS: {e}")
+        send_bark("YT-RSS RSS Error", f"Error fetching RSS: {e}")
         return None
-    title = title.replace(" ", "")
-    match = re.search(r'(\d{4})年(\d{1,2})月(\d{1,2})日', title)
-    if match:
-        year, month, day = match.groups()
-        return f"{year}{int(month):02d}{int(day):02d}"
-    return None
 
 def get_state(prefix: str) -> Dict:
     key = f"{prefix}/{STATE_FILENAME}"
@@ -99,7 +148,7 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         raise
 
 def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
-    randomSleep()
+    # randomSleep()
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
     
@@ -138,12 +187,6 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error downloading {video_url}: {error_msg}")
-        
-        # If it's a private video or otherwise unavailable, mark as skipped to avoid retrying
-        if any(msg in error_msg for msg in ["Private video", "This video is unavailable", "This video has been removed"]):
-            logger.info(f"Marking video as skipped due to permanent error: {error_msg}")
-            return {"id": video_url.split("=")[-1], "skipped": True, "skip_reason": error_msg}
-            
         send_bark("YT-RSS Error", f"Error downloading {video_url}: {error_msg}")
         return None
 
@@ -160,7 +203,7 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
     if ITUNES_AUTHOR:
         fg.podcast.itunes_author(ITUNES_AUTHOR)
     
-    videos = [v for v in state["videos"].values() if not v.get("skipped")]
+    videos = list(state["videos"].values())
     videos = sorted(
         videos,
         key=lambda x: x.get("upload_date", ""),
@@ -194,26 +237,28 @@ def run_sync():
         send_bark("YT-RSS Config Error", error_msg)
         return
 
-    # Get playlist entries and metadata
-    ydl_opts = {'extract_flat': True, 'quiet': True}
+    # Get RSS entries and metadata
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            playlist_info = ydl.extract_info(PLAYLIST_URL, download=False)
-            playlist_id = playlist_info.get('id')
-            if not playlist_id:
-                error_msg = "Could not extract playlist ID."
-                logger.error(error_msg)
-                send_bark("YT-RSS Error", error_msg)
-                return
-            
-            prefix = PREFIX or playlist_id
-            state = get_state(prefix)
-            
-            entries = playlist_info.get('entries', [])
-            logger.info(f"Playlist ID: {playlist_id}, Got {len(entries)} entries.")
+        playlist_info = fetch_rss_info(PLAYLIST_URL)
+        
+        if not playlist_info:
+            return
+
+        playlist_id = playlist_info.get('id')
+        if not playlist_id:
+            error_msg = "Could not extract playlist/channel ID from RSS."
+            logger.error(error_msg)
+            send_bark("YT-RSS Error", error_msg)
+            return
+        
+        prefix = PREFIX or playlist_id
+        state = get_state(prefix)
+        
+        entries = playlist_info.get('entries', [])
+        logger.info(f"Source ID: {playlist_id}, Got {len(entries)} entries from RSS.")
     except Exception as e:
-        logger.error(f"Error fetching playlist: {e}")
-        send_bark("YT-RSS Error", f"Error fetching playlist: {e}")
+        logger.error(f"Error fetching source: {e}")
+        send_bark("YT-RSS Error", f"Error fetching source: {e}")
         return
 
     new_videos_count = 0
@@ -221,44 +266,23 @@ def run_sync():
         video_id = entry['id']
         video_title = entry.get('title', '')
         
-        # 1. Attempt to extract date from title
-        title_date = extract_date_from_title(video_title)
-        
-        # 2. Determine if we should skip this video based on date (only if AFTER_DATE is set)
+        # 1. Determine if we should skip this video based on date
         should_skip = False
         skip_reason = ""
         
         if AFTER_DATE:
-            if title_date:
-                if title_date < AFTER_DATE:
+            # Use RSS published date
+            effective_date = entry.get('upload_date')
+            if effective_date:
+                if effective_date < AFTER_DATE:
                     should_skip = True
-                    skip_reason = f"title date: {title_date}"
+                    skip_reason = f"date: {effective_date}"
             else:
-                # Fallback: Check metadata if title date is missing and video is new
-                if video_id not in state["videos"]:
-                    logger.info(f"Title date not found for {video_id}, checking metadata...")
-                    randomSleep()
-                    try:
-                        check_opts = {'quiet': True, 'no_warnings': True}
-                        with yt_dlp.YoutubeDL(check_opts) as ydl:
-                            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-                            upload_date = info.get("upload_date")
-                            if upload_date and upload_date < AFTER_DATE:
-                                should_skip = True
-                                skip_reason = f"upload date: {upload_date}"
-                    except Exception as e:
-                        error_msg = str(e)
-                        logger.error(f"Error checking metadata for {video_id}: {error_msg}")
-                        if any(msg in error_msg for msg in ["Private video", "This video is unavailable", "This video has been removed"]):
-                            should_skip = True
-                            skip_reason = f"permanent error ({error_msg})"
+                logger.warning(f"No date found for {video_id} in RSS, cannot apply AFTER_DATE filter.")
 
-        # 3. Handle skipping
+        # 2. Handle skipping
         if should_skip:
-            if video_id not in state["videos"]:
-                logger.info(f"Skipping video {video_id} by {skip_reason}")
-                state["videos"][video_id] = {"id": video_id, "skipped": True, "skip_reason": skip_reason}
-                save_state(state, prefix)
+            logger.info(f"Skipping video {video_id} by {skip_reason}")
             continue
 
         # 4. Proceed with download if it's a new video
@@ -270,21 +294,18 @@ def run_sync():
             logger.info(f"Downloading video: {video_id} ({video_title})")
             video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
             if video_data:
-                if video_data.get("skipped"):
-                    state["videos"][video_id] = {"id": video_id, "skipped": True, "skip_reason": video_data.get("skip_reason")}
-                else:
-                    logger.info(f"Uploading video: {video_id}")
-                    upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
-                    video_data["local_path"].unlink()
-                    
-                    state["videos"][video_id] = {
-                        "id": video_data["id"],
-                        "title": video_data["title"],
-                        "description": video_data["description"],
-                        "upload_date": video_data["upload_date"],
-                        "url": video_data["url"]
-                    }
-                    new_videos_count += 1
+                logger.info(f"Uploading video: {video_id}")
+                upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
+                video_data["local_path"].unlink()
+                
+                state["videos"][video_id] = {
+                    "id": video_data["id"],
+                    "title": video_data["title"],
+                    "description": video_data["description"],
+                    "upload_date": video_data["upload_date"],
+                    "url": video_data["url"]
+                }
+                new_videos_count += 1
                 save_state(state, prefix)
 
     # Check if RSS exists on R2 by checking if we should update
