@@ -1,6 +1,7 @@
 import sys
 import logging
 from typing import Optional
+from datetime import datetime, timezone
 import yt_dlp
 from main import (
     fetch_rss_info,
@@ -19,7 +20,7 @@ def get_video_upload_date(video_id: str) -> Optional[str]:
     """Fetches the upload date of a video using yt-dlp."""
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     logger.info(f"Fetching date for {video_id} via yt-dlp")
-    randomSleep()
+    randomSleep(5, 30)
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -28,6 +29,9 @@ def get_video_upload_date(video_id: str) -> Optional[str]:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
+            timestamp = info.get("timestamp")
+            if timestamp:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
             return info.get("upload_date")
     except Exception as e:
         logger.error(f"Error fetching date for {video_id}: {e}")

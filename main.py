@@ -337,8 +337,8 @@ def run_sync():
         logger.info("No new videos found and RSS already exists.")
 
 
-def randomSleep():
-    delay = random.randint(10, 60)
+def randomSleep(min_val: int = 10, max_val: int = 60):
+    delay = random.randint(min_val, max_val)
     logger.info(f"Waiting for {delay} seconds before download...")
     time.sleep(delay)
 
