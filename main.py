@@ -15,12 +15,15 @@ import random
 import urllib.request
 from lxml import etree
 from notify import send_bark
+from config import load_env
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-load_dotenv()
+load_env()
 
 # Configuration from environment
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
@@ -34,7 +37,9 @@ STATE_FILENAME = os.getenv("STATE_FILENAME", "state.json")
 MAX_NEW_VIDEOS = int(os.getenv("MAX_NEW_VIDEOS", "5"))
 ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
-SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
+SLEEP_INTERVAL = int(
+    os.getenv("SLEEP_INTERVAL", "360")
+)  # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
 
 
@@ -47,56 +52,60 @@ s3_client = boto3.client(
     config=Config(signature_version="s3v4"),
 )
 
+
 def fetch_rss_info(url: str) -> Optional[Dict]:
     """Fetches and parses YouTube RSS feed."""
     logger.info(f"Fetching RSS feed from {url}")
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req) as response:
             xml_content = response.read()
-        
+
         root = etree.fromstring(xml_content)
         ns = {
-            'atom': 'http://www.w3.org/2005/Atom',
-            'yt': 'http://www.youtube.com/xml/schemas/2015'
+            "atom": "http://www.w3.org/2005/Atom",
+            "yt": "http://www.youtube.com/xml/schemas/2015",
         }
-        
-        title_node = root.find('atom:title', ns)
+
+        title_node = root.find("atom:title", ns)
         title = title_node.text if title_node is not None else "YouTube RSS"
-        
-        channel_id_node = root.find('yt:channelId', ns)
-        channel_id = channel_id_node.text if channel_id_node is not None else url.split("channel_id=")[-1]
-        
+
+        channel_id_node = root.find("yt:channelId", ns)
+        channel_id = (
+            channel_id_node.text
+            if channel_id_node is not None
+            else url.split("channel_id=")[-1]
+        )
+
         entries = []
-        for entry_node in root.findall('atom:entry', ns):
-            video_id_node = entry_node.find('yt:videoId', ns)
-            v_title_node = entry_node.find('atom:title', ns)
-            pub_date_node = entry_node.find('atom:published', ns)
-            
+        for entry_node in root.findall("atom:entry", ns):
+            video_id_node = entry_node.find("yt:videoId", ns)
+            v_title_node = entry_node.find("atom:title", ns)
+            pub_date_node = entry_node.find("atom:published", ns)
+
             if video_id_node is not None:
                 video_id = video_id_node.text
                 video_title = v_title_node.text if v_title_node is not None else ""
-                
+
                 upload_date = None
                 if pub_date_node is not None:
                     upload_date = pub_date_node.text
-                
-                entries.append({
-                    'id': video_id,
-                    'title': video_title,
-                    'upload_date': upload_date
-                })
-        
+
+                entries.append(
+                    {"id": video_id, "title": video_title, "upload_date": upload_date}
+                )
+
         return {
-            'id': channel_id,
-            'title': title,
-            'description': f"RSS feed: {title}",
-            'entries': entries
+            "id": channel_id,
+            "title": title,
+            "description": f"RSS feed: {title}",
+            "entries": entries,
         }
     except Exception as e:
         logger.error(f"Error fetching RSS: {e}")
         send_bark("YT-RSS RSS Error", f"Error fetching RSS: {e}")
         return None
+
 
 def get_state(prefix: str) -> Dict:
     key = f"{prefix}/{STATE_FILENAME}"
@@ -110,6 +119,7 @@ def get_state(prefix: str) -> Dict:
         logger.error(f"Error fetching state: {e}")
         send_bark("YT-RSS Error", f"Error fetching state: {e}")
         return {"videos": {}}
+
 
 def save_state(state: Dict, prefix: str):
     key = f"{prefix}/{STATE_FILENAME}"
@@ -125,13 +135,14 @@ def save_state(state: Dict, prefix: str):
         logger.error(f"Error saving state: {e}")
         send_bark("YT-RSS Error", f"Error saving state: {e}")
 
+
 def upload_file(local_path: Path, remote_key: str, content_type: str):
     try:
         s3_client.upload_file(
             str(local_path),
             R2_BUCKET_NAME,
             remote_key,
-            ExtraArgs={"ContentType": content_type}
+            ExtraArgs={"ContentType": content_type},
         )
         logger.info(f"Uploaded {local_path} to {remote_key}")
     except Exception as e:
@@ -139,32 +150,37 @@ def upload_file(local_path: Path, remote_key: str, content_type: str):
         send_bark("YT-RSS Error", f"Error uploading file {local_path.name}: {e}")
         raise
 
+
 def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
     randomSleep()
     tmp_dir = Path("downloads")
     tmp_dir.mkdir(exist_ok=True)
-    
+
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'm4a',
-        }],
-        'outtmpl': str(tmp_dir / '%(id)s.%(ext)s'),
-        'quiet': True,
-        'no_warnings': True,
+        "format": "bestaudio/best",
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "m4a",
+            }
+        ],
+        "outtmpl": str(tmp_dir / "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
     }
-    
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=True)
             audio_path = tmp_dir / f"{info['id']}.m4a"
             if not audio_path.exists():
                 audio_path = next(tmp_dir.glob(f"{info['id']}.*"))
-            
+
             title = info.get("title", "")
             description = info.get("description", "")
-            if not description or len(description) > 128: # 限制长度，防止 RSS 文件体积过大
+            if (
+                not description or len(description) > 128
+            ):  # 限制长度，防止 RSS 文件体积过大
                 description = title
 
             return {
@@ -173,7 +189,7 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
                 "description": description,
                 "filename": audio_path.name,
                 "local_path": audio_path,
-                "url": f"{BASE_URL}/{prefix}/{audio_path.name}"
+                "url": f"{BASE_URL}/{prefix}/{audio_path.name}",
             }
     except Exception as e:
         error_msg = str(e)
@@ -181,34 +197,33 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
         send_bark("YT-RSS Error", f"Error downloading {video_url}: {error_msg}")
         return None
 
+
 def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
     fg = FeedGenerator()
-    fg.load_extension('podcast')
+    fg.load_extension("podcast")
     fg.id(PLAYLIST_URL)
-    fg.title(playlist_info.get('title', "YouTube Playlist RSS"))
-    fg.author({'name': 'yt-rss'})
-    fg.link(href=PLAYLIST_URL, rel='alternate')
-    fg.description(playlist_info.get('description', "Generated RSS from YouTube Playlist"))
+    fg.title(playlist_info.get("title", "YouTube Playlist RSS"))
+    fg.author({"name": "yt-rss"})
+    fg.link(href=PLAYLIST_URL, rel="alternate")
+    fg.description(
+        playlist_info.get("description", "Generated RSS from YouTube Playlist")
+    )
     if ITUNES_IMAGE:
         fg.podcast.itunes_image(ITUNES_IMAGE)
     if ITUNES_AUTHOR:
         fg.podcast.itunes_author(ITUNES_AUTHOR)
-    
+
     videos = list(state["videos"].values())
-    videos = sorted(
-        videos,
-        key=lambda x: x.get("upload_date", ""),
-        reverse=True
-    )
-    
+    videos = sorted(videos, key=lambda x: x.get("upload_date", ""), reverse=True)
+
     for video in videos:
         fe = fg.add_entry()
         fe.id(video["id"])
         fe.title(video["title"])
         fe.description(video["description"])
         fe.link(href=video["url"])
-        fe.enclosure(video["url"], 0, 'audio/mp4')
-        
+        fe.enclosure(video["url"], 0, "audio/mp4")
+
         if video.get("upload_date"):
             try:
                 date_str = video["upload_date"]
@@ -222,12 +237,24 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
                 pass
 
     local_rss = Path(RSS_FILENAME)
-    fg.rss_file(str(local_rss), encoding='UTF-8', pretty=True)
-    upload_file(local_rss, f"{prefix}/{RSS_FILENAME}", "application/rss+xml; charset=utf-8")
+    fg.rss_file(str(local_rss), encoding="UTF-8", pretty=True)
+    upload_file(
+        local_rss, f"{prefix}/{RSS_FILENAME}", "application/rss+xml; charset=utf-8"
+    )
     local_rss.unlink()
 
+
 def run_sync():
-    if not all([R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT_URL, R2_BUCKET_NAME, PLAYLIST_URL, BASE_URL]):
+    if not all(
+        [
+            R2_ACCESS_KEY_ID,
+            R2_SECRET_ACCESS_KEY,
+            R2_ENDPOINT_URL,
+            R2_BUCKET_NAME,
+            PLAYLIST_URL,
+            BASE_URL,
+        ]
+    ):
         error_msg = "Missing required environment variables."
         logger.error(error_msg)
         send_bark("YT-RSS Config Error", error_msg)
@@ -236,21 +263,21 @@ def run_sync():
     # Get RSS entries and metadata
     try:
         playlist_info = fetch_rss_info(PLAYLIST_URL)
-        
+
         if not playlist_info:
             return
 
-        playlist_id = playlist_info.get('id')
+        playlist_id = playlist_info.get("id")
         if not playlist_id:
             error_msg = "Could not extract playlist/channel ID from RSS."
             logger.error(error_msg)
             send_bark("YT-RSS Error", error_msg)
             return
-        
+
         prefix = PREFIX or playlist_id
         state = get_state(prefix)
-        
-        entries = playlist_info.get('entries', [])
+
+        entries = playlist_info.get("entries", [])
         logger.info(f"Source ID: {playlist_id}, Got {len(entries)} entries from RSS.")
     except Exception as e:
         logger.error(f"Error fetching source: {e}")
@@ -259,30 +286,34 @@ def run_sync():
 
     new_videos_count = 0
     for entry in entries:
-        video_id = entry['id']
-        video_title = entry.get('title', '')
-        
-
+        video_id = entry["id"]
+        video_title = entry.get("title", "")
 
         # 4. Proceed with download if it's a new video
         if video_id not in state["videos"]:
             if new_videos_count >= MAX_NEW_VIDEOS:
                 logger.info(f"Reached limit of {MAX_NEW_VIDEOS} new videos per run.")
                 break
-                
+
             logger.info(f"Downloading video: {video_id} ({video_title})")
-            video_data = download_audio(f"https://www.youtube.com/watch?v={video_id}", prefix)
+            video_data = download_audio(
+                f"https://www.youtube.com/watch?v={video_id}", prefix
+            )
             if video_data:
                 logger.info(f"Uploading video: {video_id}")
-                upload_file(video_data["local_path"], f"{prefix}/{video_data['filename']}", "audio/mp4")
+                upload_file(
+                    video_data["local_path"],
+                    f"{prefix}/{video_data['filename']}",
+                    "audio/mp4",
+                )
                 video_data["local_path"].unlink()
-                
+
                 state["videos"][video_id] = {
                     "id": video_data["id"],
                     "title": video_data["title"],
                     "description": video_data["description"],
                     "upload_date": entry.get("upload_date"),
-                    "url": video_data["url"]
+                    "url": video_data["url"],
                 }
                 new_videos_count += 1
                 save_state(state, prefix)
@@ -297,16 +328,20 @@ def run_sync():
         pass
 
     if new_videos_count > 0 or not rss_exists:
-        logger.info(f"Updating RSS feed in {prefix}/ with {new_videos_count} new entries.")
-        state = get_state(prefix) # get latest state
+        logger.info(
+            f"Updating RSS feed in {prefix}/ with {new_videos_count} new entries."
+        )
+        state = get_state(prefix)  # get latest state
         generate_rss(state, prefix, playlist_info)
     else:
         logger.info("No new videos found and RSS already exists.")
+
 
 def randomSleep():
     delay = random.randint(10, 60)
     logger.info(f"Waiting for {delay} seconds before download...")
     time.sleep(delay)
+
 
 def main():
     logger.info(f"Starting service mode. Syncing every {SLEEP_INTERVAL} minutes.")
@@ -316,51 +351,10 @@ def main():
         except Exception as e:
             logger.error(f"Unexpected error in sync loop: {e}")
             send_bark("YT-RSS Critical Error", f"Unexpected error in sync loop: {e}")
-        
+
         logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
         time.sleep(SLEEP_INTERVAL * 60)
 
-def fix_state_dates():
-    """Updates existing state videos with raw date strings from the current RSS feed."""
-    playlist_info = fetch_rss_info(PLAYLIST_URL)
-    if not playlist_info:
-        logger.error("Could not fetch RSS info to fix dates.")
-        return
-    
-    playlist_id = playlist_info.get('id')
-    prefix = PREFIX or playlist_id
-    state = get_state(prefix)
-    
-    rss_videos = {entry['id']: entry['upload_date'] for entry in playlist_info.get('entries', [])}
-    
-    updated_count = 0
-    for video_id, video_data in state.get("videos", {}).items():
-        if video_id in rss_videos:
-            old_date = video_data.get("upload_date")
-            new_date = rss_videos[video_id]
-            if old_date != new_date:
-                video_data["upload_date"] = new_date
-                updated_count += 1
-                logger.info(f"Updated date for {video_id}: {old_date} -> {new_date}")
-    
-    if updated_count > 0:
-        save_state(state, prefix)
-        logger.info(f"Fixed dates for {updated_count} videos in state.")
-    else:
-        logger.info("No dates needed updating in state.")
-
-def refresh_state():
-    s = get_state(PREFIX)
-    vids = s['videos']
-    for video_id in list(vids.keys()):
-        if vids[video_id].get('skipped', False):
-            del vids[video_id]
-    save_state(s, PREFIX)
-
-def refresh_rss():
-    state = get_state(PREFIX)
-    playlist_info = fetch_rss_info(PLAYLIST_URL)
-    generate_rss(state, PREFIX, playlist_info)
 
 if __name__ == "__main__":
-   main()
+    main()
