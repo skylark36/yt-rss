@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -36,7 +36,7 @@ ITUNES_IMAGE = os.getenv("ITUNES_IMAGE", "")
 ITUNES_AUTHOR = os.getenv("ITUNES_AUTHOR", "")
 SLEEP_INTERVAL = int(os.getenv("SLEEP_INTERVAL", "360")) # 360 minutes (6 hours) default
 PREFIX = os.getenv("PREFIX")
-AFTER_DATE = os.getenv("AFTER_DATE")
+
 
 # S3 Client for R2
 s3_client = boto3.client(
@@ -79,15 +79,7 @@ def fetch_rss_info(url: str) -> Optional[Dict]:
                 
                 upload_date = None
                 if pub_date_node is not None:
-                    try:
-                        # Normalize ISO date to YYYYMMDD
-                        date_str = pub_date_node.text
-                        if date_str.endswith('Z'):
-                            date_str = date_str[:-1] + '+00:00'
-                        dt = datetime.fromisoformat(date_str)
-                        upload_date = dt.strftime("%Y%m%d")
-                    except Exception as e:
-                        logger.warning(f"Error parsing date {pub_date_node.text}: {e}")
+                    upload_date = pub_date_node.text
                 
                 entries.append({
                     'id': video_id,
@@ -179,7 +171,6 @@ def download_audio(video_url: str, prefix: str) -> Optional[Dict]:
                 "id": info["id"],
                 "title": title,
                 "description": description,
-                "upload_date": info.get("upload_date"),
                 "filename": audio_path.name,
                 "local_path": audio_path,
                 "url": f"{BASE_URL}/{prefix}/{audio_path.name}"
@@ -220,8 +211,13 @@ def generate_rss(state: Dict, prefix: str, playlist_info: Dict):
         
         if video.get("upload_date"):
             try:
-                date_obj = datetime.strptime(video["upload_date"], "%Y%m%d")
-                fe.pubDate(date_obj.strftime("%a, %d %b %Y %H:%M:%S +0000"))
+                date_str = video["upload_date"]
+                # Fallback to legacy formats
+                if len(date_str) == 8:
+                    date_obj = datetime.strptime(date_str, "%Y%m%d")
+                    fe.pubDate(date_obj.replace(tzinfo=timezone.utc))
+                else:
+                    fe.pubDate(date_str)
             except:
                 pass
 
@@ -266,24 +262,7 @@ def run_sync():
         video_id = entry['id']
         video_title = entry.get('title', '')
         
-        # 1. Determine if we should skip this video based on date
-        should_skip = False
-        skip_reason = ""
-        
-        if AFTER_DATE:
-            # Use RSS published date
-            effective_date = entry.get('upload_date')
-            if effective_date:
-                if effective_date < AFTER_DATE:
-                    should_skip = True
-                    skip_reason = f"date: {effective_date}"
-            else:
-                logger.warning(f"No date found for {video_id} in RSS, cannot apply AFTER_DATE filter.")
 
-        # 2. Handle skipping
-        if should_skip:
-            logger.info(f"Skipping video {video_id} by {skip_reason}")
-            continue
 
         # 4. Proceed with download if it's a new video
         if video_id not in state["videos"]:
@@ -302,7 +281,7 @@ def run_sync():
                     "id": video_data["id"],
                     "title": video_data["title"],
                     "description": video_data["description"],
-                    "upload_date": video_data["upload_date"],
+                    "upload_date": entry.get("upload_date"),
                     "url": video_data["url"]
                 }
                 new_videos_count += 1
@@ -341,6 +320,35 @@ def main():
         logger.info(f"Sleeping for {SLEEP_INTERVAL} minutes...")
         time.sleep(SLEEP_INTERVAL * 60)
 
+def fix_state_dates():
+    """Updates existing state videos with raw date strings from the current RSS feed."""
+    playlist_info = fetch_rss_info(PLAYLIST_URL)
+    if not playlist_info:
+        logger.error("Could not fetch RSS info to fix dates.")
+        return
+    
+    playlist_id = playlist_info.get('id')
+    prefix = PREFIX or playlist_id
+    state = get_state(prefix)
+    
+    rss_videos = {entry['id']: entry['upload_date'] for entry in playlist_info.get('entries', [])}
+    
+    updated_count = 0
+    for video_id, video_data in state.get("videos", {}).items():
+        if video_id in rss_videos:
+            old_date = video_data.get("upload_date")
+            new_date = rss_videos[video_id]
+            if old_date != new_date:
+                video_data["upload_date"] = new_date
+                updated_count += 1
+                logger.info(f"Updated date for {video_id}: {old_date} -> {new_date}")
+    
+    if updated_count > 0:
+        save_state(state, prefix)
+        logger.info(f"Fixed dates for {updated_count} videos in state.")
+    else:
+        logger.info("No dates needed updating in state.")
+
 def refresh_state():
     s = get_state(PREFIX)
     vids = s['videos']
@@ -355,4 +363,4 @@ def refresh_rss():
     generate_rss(state, PREFIX, playlist_info)
 
 if __name__ == "__main__":
-    main()
+   main()
