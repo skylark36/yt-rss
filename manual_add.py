@@ -35,18 +35,11 @@ def get_video_info(video_url: str) -> Optional[Dict]:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             
-            # Extract upload date
-            upload_date = info.get("upload_date")
-            if not upload_date and info.get("timestamp"):
-                upload_date = datetime.fromtimestamp(
-                    info.get("timestamp"), tz=timezone.utc
-                ).strftime("%Y%m%d")
-            
             return {
                 "id": info["id"],
                 "title": info.get("title", ""),
                 "description": info.get("description", ""), # Keep description short for RSS
-                "upload_date": upload_date,
+                "upload_date": info.get("upload_date"),
                 "url": video_url
             }
     except Exception as e:
