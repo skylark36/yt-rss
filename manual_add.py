@@ -37,7 +37,7 @@ def get_video_info(video_url: str) -> Optional[Dict]:
             
             # Extract upload date
             timestamp = info.get("timestamp")
-            upload_date = info.get("upload_date")
+            upload_date = info.get("upload_date", "")
             
             if timestamp:
                 upload_date = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
