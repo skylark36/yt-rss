@@ -1,4 +1,4 @@
-FROM python:3.14-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
@@ -7,11 +7,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements from exporter and install to system python
+# Copy requirements and install
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY main.py ./
+# Add missing requests dependency
+RUN pip install --no-cache-dir requests
+
+# Copy all source code
+COPY *.py ./
 
 CMD ["python", "main.py"]
