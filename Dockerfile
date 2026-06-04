@@ -7,12 +7,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements and install
+# Copy requirements and install with upgrade pip first
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Add missing requests dependency
-RUN pip install --no-cache-dir requests
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy all source code
 COPY *.py ./
