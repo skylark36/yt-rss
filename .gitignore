@@ -3,65 +3,77 @@
 .dockerenv
 Dockerfile.*
 
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-*.egg-info/
-dist-packages/
-
-# Build artifacts
-build/
-dist/
+# Compiled and build artifacts
 *.pyc
-*.pyo
-*.so
-*.dylib
-*.dll
-*.exe
+__pycache__/
 *.o
 *.obj
+*.exe
+*.dll
+*.so
 *.a
-*.lib
+*.out
+dist/
+build/
+target/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+.mypy_cache/
+.pytest_cache/
+.gradle/
 
 # Logs and temp files
 *.log
 *.tmp
-*.temp
 *.swp
 *.swo
+*.bak
+*.~*
 
-# Environment files
+# Environment
 .env
 .env.local
 .env.*
-.envrc
 
-# Editors
+# Editors and IDEs
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
+*.swp
+*.swo
+
+# System files
 .DS_Store
 Thumbs.db
 
-# Coverage and testing
-.coverage
+# Coverage reports
 coverage/
 htmlcov/
-.pytest_cache/
-.mypy_cache/
-.nyc_output/
-coverage-final.json
+.coverage
 
-# OS generated
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Icon?
-Thumbs.db
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
