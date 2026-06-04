@@ -1,5 +1,8 @@
 FROM python:3.12-slim-bookworm
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
@@ -7,10 +10,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements and install with upgrade pip first
-COPY requirements.txt ./
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy uv lock file and pyproject.toml
+COPY uv.lock pyproject.toml ./
+
+# Install dependencies using uv
+RUN uv pip install --system --no-cache-dir -r uv.lock
 
 # Copy all source code
 COPY *.py ./
